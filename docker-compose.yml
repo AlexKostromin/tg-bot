@@ -1,0 +1,83 @@
+version: '3.8'
+services:
+  db:
+    image: postgres:15
+    environment:
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: tg_bot
+      POSTGRES_USER: postgres
+    ports:
+      - "5432:5432"
+    volumes:
+      - db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    build:
+      context: ./backend
+    ports:
+      - "4000:4000"
+    environment:
+      - DEBUG=True
+      - DJANGO_SETTINGS_MODULE=config.settings
+      - DB_NAME=tg_bot
+      - DB_USER=postgres
+      - DB_PASSWORD=postgres
+      - DB_HOST=db
+      - DB_PORT=5432
+      - TELEGRAM_TOKEN=${TELEGRAM_TOKEN}
+      - ADMIN_TOKEN=${ADMIN_TOKEN:-changeme}
+      - EMAIL_BACKEND=${EMAIL_BACKEND:-django.core.mail.backends.smtp.EmailBackend}
+      - SMTP_HOST=${SMTP_HOST:-}
+      - SMTP_PORT=${SMTP_PORT:-587}
+      - SMTP_SECURE=${SMTP_SECURE:-true}
+      - SMTP_USER=${SMTP_USER:-krouzi@mail.ru}
+      - SMTP_PASS=${SMTP_PASS:-}
+      - FROM_EMAIL=${FROM_EMAIL:-krouzi@mail.ru}
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:4000/api/schema/ || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    volumes:
+      - ./backend:/app
+
+  bot:
+    build:
+      context: ./backend
+    environment:
+      - DJANGO_SETTINGS_MODULE=config.settings
+      - DB_NAME=tg_bot
+      - DB_USER=postgres
+      - DB_PASSWORD=postgres
+      - DB_HOST=db
+      - DB_PORT=5432
+      - TELEGRAM_TOKEN=${TELEGRAM_TOKEN}
+      - ADMIN_TOKEN=${ADMIN_TOKEN:-changeme}
+      - EMAIL_BACKEND=${EMAIL_BACKEND:-django.core.mail.backends.smtp.EmailBackend}
+      - SMTP_HOST=${SMTP_HOST:-}
+      - SMTP_PORT=${SMTP_PORT:-587}
+      - SMTP_SECURE=${SMTP_SECURE:-true}
+      - SMTP_USER=${SMTP_USER:-krouzi@mail.ru}
+      - SMTP_PASS=${SMTP_PASS:-}
+      - FROM_EMAIL=${FROM_EMAIL:-krouzi@mail.ru}
+    depends_on:
+      db:
+        condition: service_healthy
+      backend:
+        condition: service_started
+    volumes:
+      - ./backend:/app
+    restart: unless-stopped
+    command: ["bash","-lc","python - <<'PY'\nimport os, django\nos.environ.setdefault('DJANGO_SETTINGS_MODULE','config.settings')\ndjango.setup()\nfrom telegram.ext import Application\nfrom apps.bot import setup_bot_handlers\ntoken = os.environ.get('TELEGRAM_TOKEN')\nif not token:\n    raise SystemExit('TELEGRAM_TOKEN not set')\napp = Application.builder().token(token).build()\nsetup_bot_handlers(app)\nprint('Bot starting (polling)...')\napp.run_polling()\nPY"]
+
+volumes:
+  db-data:

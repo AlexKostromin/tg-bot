@@ -1,0 +1,31 @@
+"""
+Константы состояний для ConversationHandler.
+ВАЖНО: значения должны быть уникальными.
+"""
+(
+    START,
+    CONTACT_MESSAGE,
+    COMPETITION_SELECT,
+    ROLE_SELECT,
+    CONFIRM_DATA,
+    EDIT_FIELD,
+    EDIT_CHOICE,
+    MORE_EDITS,
+    NEW_USER_NAME,
+    NEW_USER_SURNAME,
+    NEW_USER_PHONE,
+    NEW_USER_EMAIL,
+    NEW_USER_BIRTH_DATE,
+    NEW_USER_COUNTRY,
+    NEW_USER_CITY,
+    NEW_USER_SCHOOL,
+    NEW_USER_CHANNEL_NAME,
+    NEW_USER_CERT_ROLE,
+    NEW_USER_CERT_NAME,
+    NEW_USER_COMPANY,
+    NEW_USER_POSITION,
+    NEW_USER_IMPORTANT,
+    VOTER_SLOT_DATE,
+    VOTER_SLOT_START,
+    VOTER_SLOT_END,
+) = range(25)

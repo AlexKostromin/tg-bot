@@ -1,0 +1,710 @@
+import os
+import django
+
+os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'config.settings')
+django.setup()
+
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup, ReplyKeyboardRemove
+from telegram.ext import (
+    Application, CommandHandler, MessageHandler, CallbackQueryHandler, 
+    ConversationHandler, ContextTypes, filters
+)
+from asgiref.sync import sync_to_async
+from apps.users.models import User, ProfileChangeLog
+from apps.competitions.models import Competition
+from django.core.mail import send_mail
+from django.conf import settings
+import logging
+
+logging.basicConfig(
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    level=logging.INFO
+)
+logger = logging.getLogger(__name__)
+
+# Conversation states
+# ВАЖНО: значения состояний ConversationHandler должны быть уникальными.
+(
+    START,
+    CONTACT_MESSAGE,
+    COMPETITION_SELECT,
+    ROLE_SELECT,
+    CONFIRM_DATA,
+    EDIT_FIELD,
+    EDIT_CHOICE,
+    MORE_EDITS,
+    NEW_USER_NAME,
+    NEW_USER_SURNAME,
+    NEW_USER_PHONE,
+    NEW_USER_EMAIL,
+    NEW_USER_COUNTRY,
+    NEW_USER_CITY,
+    NEW_USER_SCHOOL,
+    NEW_USER_CERT_ROLE,
+    NEW_USER_CERT_NAME,
+    NEW_USER_COMPANY,
+    NEW_USER_POSITION,
+    NEW_USER_IMPORTANT,
+) = range(20)
+
+# Sync-to-async wrappers for Django ORM
+@sync_to_async
+def get_or_create_user(chat_id, telegram_id, username, first_name, last_name):
+    """Get or create user from chat_id"""
+    db_user, created = User.objects.get_or_create(
+        chat_id=chat_id,
+        defaults={
+            'telegram_id': telegram_id,
+            'username': username or '',
+            'first_name': first_name or '',
+            'last_name': last_name or '',
+        }
+    )
+    if not created:
+        db_user.telegram_id = telegram_id
+        db_user.username = username or ''
+        db_user.first_name = first_name or ''
+        db_user.last_name = last_name or ''
+        db_user.save()
+    return db_user
+
+@sync_to_async
+def get_competitions():
+    """Get all competitions"""
+    return list(Competition.objects.all())
+
+@sync_to_async
+def get_competition_by_id(comp_id):
+    """Get competition by ID"""
+    return Competition.objects.get(id=comp_id)
+
+@sync_to_async
+def get_user_by_telegram_id(telegram_id):
+    """Get user by telegram_id or raise DoesNotExist"""
+    return User.objects.get(telegram_id=telegram_id)
+
+@sync_to_async
+def add_user_to_competition(user, comp, role):
+    """Add user to competition's role list"""
+    if role == 'player':
+        comp.arbitrators.add(user)
+    elif role == 'voter':
+        comp.voters.add(user)
+    elif role == 'viewer':
+        comp.viewers.add(user)
+    elif role == 'adviser':
+        comp.advisers.add(user)
+
+@sync_to_async
+def update_or_create_new_user(chat_id, telegram_id, first_name, last_name, phone, email, country, city, school, company, position, certificate_name, important_info):
+    """Update existing user created in start() with full profile data"""
+    user = User.objects.get(chat_id=chat_id)
+    user.telegram_id = telegram_id
+    user.first_name = first_name
+    user.last_name = last_name
+    user.phone = phone
+    user.email = email
+    user.country = country
+    user.city = city
+    user.school = school
+    user.company = company
+    user.position = position
+    user.certificate_name = certificate_name
+    user.important_info = important_info
+    user.save()
+    return user
+
+@sync_to_async
+def create_profile_log(user, field_name, old_value, new_value):
+    """Create profile change log"""
+    return ProfileChangeLog.objects.create(
+        user=user,
+        field_name=field_name,
+        old_value=old_value,
+        new_value=new_value
+    )
+
+@sync_to_async
+def update_user_fields(user, **kwargs):
+    """Update user fields and save"""
+    for key, value in kwargs.items():
+        setattr(user, key, value)
+    user.save()
+    return user
+
+
+@sync_to_async
+def send_contact_email(subject, message, from_email, recipient_list):
+    """Send contact email using Django's send_mail"""
+    return send_mail(subject, message, from_email, recipient_list, fail_silently=False)
+
+
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Start command - show main menu"""
+    user = update.effective_user
+    chat_id = str(update.effective_chat.id)
+    
+    # Save/update basic user info
+    await get_or_create_user(
+        chat_id=chat_id,
+        telegram_id=str(user.id),
+        username=user.username,
+        first_name=user.first_name,
+        last_name=user.last_name,
+    )
+    
+    keyboard = [
+        [InlineKeyboardButton("💬 Связаться с командой USN", callback_data='contact_usn')],
+        [InlineKeyboardButton("⚽ Зарегистрироваться на соревнования", callback_data='register_competition')]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    message_text = "Добро пожаловать! 👋\n\nВыберите действие:"
+    
+    # Handle both message (/start) and callback query cases
+    if update.message:
+        await update.message.reply_text(message_text, reply_markup=reply_markup)
+    elif update.callback_query:
+        query = update.callback_query
+        await query.answer()
+        await query.edit_message_text(text=message_text, reply_markup=reply_markup)
+    
+    return START
+
+
+async def button_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Handle main menu buttons"""
+    query = update.callback_query
+    await query.answer()
+    
+    if query.data == 'contact_usn':
+        await query.edit_message_text(
+            text="📞 Свяжитесь с командой USN\n\nНапишите ваше сообщение:"
+        )
+        return CONTACT_MESSAGE
+    
+    elif query.data == 'register_competition':
+        context.user_data['telegram_id'] = str(update.effective_user.id)
+        context.user_data['chat_id'] = str(update.effective_chat.id)
+        return await show_competitions(update, context)
+
+
+async def contact_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Handle contact message"""
+    message_text = update.message.text
+    user = update.effective_user
+    chat_id = str(update.effective_chat.id) if update.effective_chat else 'unknown'
+    
+    logger.info(f"Message from {user.username} ({user.id}): {message_text}")
+    # Forward message to contact email
+    subject = f"USN contact message from @{user.username or user.id}"
+    body = f"From: @{user.username or '—'} (id: {user.id}, chat_id: {chat_id})\n\n{message_text}"
+    from_email = getattr(settings, 'DEFAULT_FROM_EMAIL', 'no-reply@localhost')
+    try:
+        await send_contact_email(subject, body, from_email, ['krouzi@mail.ru'])
+    except Exception as exc:
+        logger.exception('Failed to send contact email: %s', exc)
+
+    await update.message.reply_text(
+        "Спасибо за ваше сообщение! 📧\n"
+        "Команда USN свяжется с вами в ближайшее время."
+    )
+    
+    return await start(update, context)
+
+
+async def show_competitions(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Show available competitions"""
+    query = update.callback_query if update.callback_query else None
+    
+    competitions = await get_competitions()
+    
+    if not competitions:
+        text = "❌ Сейчас нет активных соревнований для регистрации.\n\nЕсли у вас остались вопросы - свяжитесь с командой USN"
+        if query:
+            await query.edit_message_text(text=text)
+        else:
+            await update.message.reply_text(text)
+        return await start(update, context)
+    
+    if len(competitions) == 1:
+        context.user_data['competition_id'] = competitions[0].id
+        context.user_data['competition_name'] = competitions[0].name
+        return await show_roles(update, context)
+    
+    keyboard = []
+    for comp in competitions:
+        keyboard.append([InlineKeyboardButton(comp.name, callback_data=f'comp_{comp.id}')])
+    
+    keyboard.append([InlineKeyboardButton("❌ Отмена", callback_data='cancel')])
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    text = "⚽ Выберите соревнование - будем рады видеть вас среди участников!"
+    if query:
+        await query.edit_message_text(text=text, reply_markup=reply_markup)
+    else:
+        await update.message.reply_text(text, reply_markup=reply_markup)
+    
+    return COMPETITION_SELECT
+
+
+async def select_competition(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Handle competition selection"""
+    query = update.callback_query
+    await query.answer()
+    
+    if query.data == 'cancel':
+        return await start(update, context)
+    
+    comp_id = int(query.data.split('_')[1])
+    comp = await get_competition_by_id(comp_id)
+    
+    context.user_data['competition_id'] = comp.id
+    context.user_data['competition_name'] = comp.name
+    
+    return await show_roles(update, context)
+
+
+async def show_roles(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Show available roles for competition"""
+    query = update.callback_query if update.callback_query else None
+    
+    comp_id = context.user_data.get('competition_id')
+    comp = await get_competition_by_id(comp_id)
+    
+    available_roles = [
+        ('player', 'Игрок'),
+        ('voter', 'Судья'),
+        ('viewer', 'Зритель'),
+        ('adviser', 'Секундант'),
+    ]
+    
+    keyboard = []
+    for role_key, role_name in available_roles:
+        keyboard.append([InlineKeyboardButton(role_name, callback_data=f'role_{role_key}')])
+    
+    keyboard.append([InlineKeyboardButton("❌ Отмена", callback_data='cancel')])
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    text = "В какой роли вы хотите присоединиться?"
+    if query:
+        await query.edit_message_text(text=text, reply_markup=reply_markup)
+    else:
+        await update.message.reply_text(text, reply_markup=reply_markup)
+    
+    return ROLE_SELECT
+
+
+async def select_role(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Handle role selection"""
+    query = update.callback_query
+    await query.answer()
+    
+    if query.data == 'cancel':
+        return await start(update, context)
+    
+    role = query.data.split('_')[1]
+    context.user_data['role'] = role
+    
+    telegram_id = context.user_data.get('telegram_id')
+    
+    try:
+        user = await get_user_by_telegram_id(telegram_id)
+        return await confirm_existing_user(update, context, user, role)
+    except User.DoesNotExist:
+        return await register_new_user_start(update, context)
+
+
+async def confirm_existing_user(update: Update, context: ContextTypes.DEFAULT_TYPE, user: User, role: str) -> int:
+    """Show existing user data for confirmation"""
+    query = update.callback_query
+    
+    cert_info = f"Имя и фамилия для сертификата: {user.certificate_name or '—'}"
+    if role not in ['player', 'voter']:
+        cert_info = ""
+    
+    text = (
+        f"Добрый день, {user.first_name} {user.last_name}!\n"
+        f"Пожалуйста, проверьте ваши данные для регистрации:\n"
+        f"Имя пользователя Telegram: @{user.username or '—'}\n"
+        f"Телефон: {user.phone or '—'}\n"
+        f"Email: {user.email or '—'}\n"
+        f"Страна: {user.country or '—'}\n"
+        f"Город: {user.city or '—'}\n"
+        f"Клуб/школа: {user.school or '—'}\n"
+        f"{cert_info}\n"
+        f"Компания: {user.company or '—'}\n"
+        f"Должность: {user.position or '—'}\n"
+        f"Как вас представить на соревнованиях: {user.important_info or '—'}"
+    )
+    
+    keyboard = [
+        [InlineKeyboardButton("✅ Да", callback_data='confirm_yes')],
+        [InlineKeyboardButton("❌ Нет", callback_data='confirm_no')]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    await query.edit_message_text(text=text, reply_markup=reply_markup)
+    return CONFIRM_DATA
+
+
+async def confirm_choice(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Handle confirmation choice"""
+    query = update.callback_query
+    await query.answer()
+    
+    if query.data == 'confirm_yes':
+        telegram_id = context.user_data.get('telegram_id')
+        user = await get_user_by_telegram_id(telegram_id)
+        role = context.user_data.get('role')
+        comp_id = context.user_data.get('competition_id')
+        comp_name = context.user_data.get('competition_name')
+        
+        comp = await get_competition_by_id(comp_id)
+        await add_user_to_competition(user, comp, role)
+        
+        role_labels = {'player': 'Игрок', 'voter': 'Судья', 'viewer': 'Зритель', 'adviser': 'Секундант'}
+        
+        text = f"✅ Отлично! Вы зарегистрированы как {role_labels.get(role)} на {comp_name}."
+        await query.edit_message_text(text=text)
+        
+        return await start(update, context)
+    
+    else:
+        return await show_edit_options(update, context)
+
+
+async def show_edit_options(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Show which fields can be edited"""
+    query = update.callback_query
+    
+    keyboard = [
+        [InlineKeyboardButton("Имя и фамилия", callback_data='edit_name')],
+        [InlineKeyboardButton("Телефон", callback_data='edit_phone')],
+        [InlineKeyboardButton("Email", callback_data='edit_email')],
+        [InlineKeyboardButton("Город", callback_data='edit_city')],
+        [InlineKeyboardButton("Клуб/школа", callback_data='edit_school')],
+        [InlineKeyboardButton("Имя и фамилия для сертификата", callback_data='edit_certificate')],
+        [InlineKeyboardButton("Как вас представить на соревнованиях", callback_data='edit_important')],
+        [InlineKeyboardButton("❌ Отмена", callback_data='cancel')]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    text = "Какие данные вы хотите изменить?"
+    await query.edit_message_text(text=text, reply_markup=reply_markup)
+    
+    return EDIT_FIELD
+
+
+async def edit_field(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Handle field editing"""
+    query = update.callback_query
+    await query.answer()
+    
+    if query.data == 'cancel':
+        return await start(update, context)
+    
+    field = query.data.split('_')[1]
+    context.user_data['edit_field'] = field
+    
+    field_prompts = {
+        'name': "Введите ваше имя и фамилию:",
+        'phone': "Введите ваш телефон:",
+        'email': "Введите ваш email:",
+        'city': "Введите ваш город:",
+        'school': "Введите школу/клуб:",
+        'certificate': "Введите имя и фамилию для сертификата (латиницей):",
+        'important': "Как вас представить на соревнованиях?"
+    }
+    
+    await query.edit_message_text(text=field_prompts.get(field))
+    return EDIT_CHOICE
+
+
+async def edit_input(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Handle edited field input"""
+    field = context.user_data.get('edit_field')
+    new_value = update.message.text
+    telegram_id = context.user_data.get('telegram_id')
+    user = await get_user_by_telegram_id(telegram_id)
+    
+    field_mapping = {
+        'phone': 'phone',
+        'email': 'email',
+        'city': 'city',
+        'school': 'school',
+        'certificate': 'certificate_name',
+        'important': 'important_info'
+    }
+    
+    if field == 'name':
+        parts = new_value.split(maxsplit=1)
+        old_first = user.first_name
+        old_last = user.last_name
+        new_first = parts[0] if parts else ''
+        new_last = parts[1] if len(parts) > 1 else ''
+        
+        await update_user_fields(user, first_name=new_first, last_name=new_last)
+        
+        await create_profile_log(user, 'first_name', old_first, new_first)
+        if len(parts) > 1:
+            await create_profile_log(user, 'last_name', old_last, new_last)
+    else:
+        db_field = field_mapping.get(field)
+        if db_field:
+            old_value = getattr(user, db_field, None)
+            await update_user_fields(user, **{db_field: new_value})
+            
+            if field == 'important':
+                await create_profile_log(user, db_field, old_value, new_value)
+    
+    keyboard = [
+        [InlineKeyboardButton("✅ Да", callback_data='more_edits_yes')],
+        [InlineKeyboardButton("❌ Нет", callback_data='more_edits_no')]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    await update.message.reply_text(
+        "Данные обновлены! 📝\n\nНужно внести ещё изменения?",
+        reply_markup=reply_markup
+    )
+    
+    return MORE_EDITS
+
+
+async def more_edits(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Handle more edits choice"""
+    query = update.callback_query
+    await query.answer()
+    
+    if query.data == 'more_edits_yes':
+        return await show_edit_options(update, context)
+    else:
+        telegram_id = context.user_data.get('telegram_id')
+        user = await get_user_by_telegram_id(telegram_id)
+        role = context.user_data.get('role')
+        return await confirm_existing_user(update, context, user, role)
+
+
+async def register_new_user_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Start new user registration"""
+    query = update.callback_query
+    await query.edit_message_text(text="Введите ваше имя в ответ на это сообщение:")
+    return NEW_USER_NAME
+
+
+async def new_user_name(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    context.user_data['first_name'] = update.message.text
+    await update.message.reply_text("Введите вашу фамилию:")
+    return NEW_USER_SURNAME
+
+
+async def new_user_surname(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    context.user_data['last_name'] = update.message.text
+    await update.message.reply_text("Укажите ваш телефон:")
+    return NEW_USER_PHONE
+
+
+async def new_user_phone(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    context.user_data['phone'] = update.message.text
+    await update.message.reply_text("Укажите ваш email:")
+    return NEW_USER_EMAIL
+
+
+async def new_user_email(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    context.user_data['email'] = update.message.text
+    await update.message.reply_text("Расскажите в какой стране вы живете:")
+    return NEW_USER_COUNTRY
+
+
+async def new_user_country(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    context.user_data['country'] = update.message.text
+    await update.message.reply_text("Уточните город вашего проживания:")
+    return NEW_USER_CITY
+
+
+async def new_user_city(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    context.user_data['city'] = update.message.text
+    await update.message.reply_text("Укажите Школу/Клуб, которые вы представляете:")
+    return NEW_USER_SCHOOL
+
+
+async def new_user_school(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    context.user_data['school'] = update.message.text
+    
+    role = context.user_data.get('role')
+    
+    if role in ['player', 'voter']:
+        keyboard = [[InlineKeyboardButton("✅ Да", callback_data='cert_yes')], 
+                   [InlineKeyboardButton("❌ Нет", callback_data='cert_no')]]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        await update.message.reply_text(
+            "Регистрация на роль Player/Voter?",
+            reply_markup=reply_markup
+        )
+        return NEW_USER_CERT_ROLE
+    else:
+        await update.message.reply_text("Расскажите в какой компании вы работаете:")
+        return NEW_USER_COMPANY
+
+
+async def new_user_cert_choice(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    query = update.callback_query
+    await query.answer()
+    
+    if query.data == 'cert_yes':
+        await query.edit_message_text("Напишите латиницей Имя и Фамилию для сертификата:")
+        return NEW_USER_CERT_NAME
+    else:
+        await query.edit_message_text("Расскажите в какой компании вы работаете:")
+        return NEW_USER_COMPANY
+
+
+async def new_user_cert_name(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    context.user_data['certificate_name'] = update.message.text
+    await update.message.reply_text("Расскажите в какой компании вы работаете:")
+    return NEW_USER_COMPANY
+
+
+async def new_user_company(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    context.user_data['company'] = update.message.text
+    await update.message.reply_text("Уточните вашу должность:")
+    return NEW_USER_POSITION
+
+
+async def new_user_position(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    context.user_data['position'] = update.message.text
+    
+    role = context.user_data.get('role')
+    if role in ['player', 'voter']:
+        await update.message.reply_text("Подскажите, как вас представить на соревнованиях?")
+        return NEW_USER_IMPORTANT
+    else:
+        return await finalize_new_user(update, context)
+
+
+async def new_user_important(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    context.user_data['important_info'] = update.message.text
+    return await finalize_new_user(update, context)
+
+
+async def finalize_new_user(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    chat_id = context.user_data.get('chat_id')
+    telegram_id = context.user_data.get('telegram_id')
+    
+    # Get or update existing user (already created in start())
+    user = await update_or_create_new_user(
+        chat_id=chat_id,
+        telegram_id=telegram_id,
+        first_name=context.user_data.get('first_name'),
+        last_name=context.user_data.get('last_name'),
+        phone=context.user_data.get('phone'),
+        email=context.user_data.get('email'),
+        country=context.user_data.get('country'),
+        city=context.user_data.get('city'),
+        school=context.user_data.get('school'),
+        company=context.user_data.get('company'),
+        position=context.user_data.get('position'),
+        certificate_name=context.user_data.get('certificate_name'),
+        important_info=context.user_data.get('important_info'),
+    )
+    
+    role = context.user_data.get('role')
+    comp_id = context.user_data.get('competition_id')
+    comp_name = context.user_data.get('competition_name')
+    comp = await get_competition_by_id(comp_id)
+    
+    await add_user_to_competition(user, comp, role)
+    
+    role_labels = {'player': 'Игрок', 'voter': 'Судья', 'viewer': 'Зритель', 'adviser': 'Секундант'}
+    
+    text = (
+        f"✅ Отлично! Вы зарегистрированы как {role_labels.get(role)} на {comp_name}.\n\n"
+        f"Ваши данные:\n"
+        f"Имя: {user.first_name} {user.last_name}\n"
+        f"Телефон: {user.phone}\n"
+        f"Email: {user.email}\n"
+        f"Страна: {user.country}\n"
+        f"Город: {user.city}"
+    )
+    
+    await update.message.reply_text(text)
+    return await start(update, context)
+
+
+async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    await update.message.reply_text("Операция отменена.")
+    return await start(update, context)
+
+
+def setup_bot_handlers(app: Application) -> None:
+    """Setup all bot handlers with conversation"""
+    
+    conv_handler = ConversationHandler(
+        entry_points=[CommandHandler('start', start)],
+        states={
+            START: [
+                CallbackQueryHandler(button_start, pattern='^(contact_usn|register_competition)$'),
+            ],
+            CONTACT_MESSAGE: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, contact_message),
+            ],
+            COMPETITION_SELECT: [
+                CallbackQueryHandler(select_competition, pattern=r'^(comp_\d+|cancel)$'),
+            ],
+            ROLE_SELECT: [
+                CallbackQueryHandler(select_role, pattern=r'^(role_(player|voter|viewer|adviser)|cancel)$'),
+            ],
+            CONFIRM_DATA: [
+                CallbackQueryHandler(confirm_choice, pattern='^(confirm_yes|confirm_no)$'),
+            ],
+            EDIT_FIELD: [
+                CallbackQueryHandler(edit_field, pattern=r'^(edit_(name|phone|email|city|school|certificate|important)|cancel)$'),
+            ],
+            EDIT_CHOICE: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, edit_input),
+            ],
+            MORE_EDITS: [
+                CallbackQueryHandler(more_edits, pattern='^more_edits_(yes|no)$'),
+            ],
+            NEW_USER_NAME: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, new_user_name),
+            ],
+            NEW_USER_SURNAME: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, new_user_surname),
+            ],
+            NEW_USER_PHONE: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, new_user_phone),
+            ],
+            NEW_USER_EMAIL: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, new_user_email),
+            ],
+            NEW_USER_COUNTRY: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, new_user_country),
+            ],
+            NEW_USER_CITY: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, new_user_city),
+            ],
+            NEW_USER_SCHOOL: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, new_user_school),
+            ],
+            NEW_USER_CERT_ROLE: [
+                CallbackQueryHandler(new_user_cert_choice, pattern='^cert_(yes|no)$'),
+            ],
+            NEW_USER_CERT_NAME: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, new_user_cert_name),
+            ],
+            NEW_USER_COMPANY: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, new_user_company),
+            ],
+            NEW_USER_POSITION: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, new_user_position),
+            ],
+            NEW_USER_IMPORTANT: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, new_user_important),
+            ],
+        },
+        fallbacks=[CommandHandler('cancel', cancel)],
+    )
+    
+    app.add_handler(conv_handler)
