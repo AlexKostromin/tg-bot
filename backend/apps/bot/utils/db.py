@@ -6,6 +6,21 @@ from apps.users.models import User, ProfileChangeLog, NotificationOutbox
 from apps.competitions.models import Competition, VoterTimeSlot
 from django.utils import timezone
 
+# Django по умолчанию работает на guvicon - он синхронный, будут ли эти запросы выполняться асинхронно на guvicorn ? Или надо испльзовать daphny асинхронный движок
+#  Добавить аннотацию типов
+
+class Bot:
+    # выбрать из двух вариантов
+
+    CHAT_ID = dddklfd
+    NAME = djlk
+
+    def __init__(self):
+        pass
+
+    def create(self):
+        CHAT_ID = self.CHAT_ID
+        pass
 
 @sync_to_async
 def get_or_create_user(chat_id, telegram_id, username, first_name, last_name):
@@ -100,7 +115,7 @@ def update_or_create_new_user(
 
 
 @sync_to_async
-def create_profile_log(user, field_name, old_value, new_value):
+def create_profile_log(user: User, field_name, old_value, new_value) -> ProfileChangeLog:
     """Create profile change log"""
     return ProfileChangeLog.objects.create(
         user=user,
@@ -120,7 +135,7 @@ def update_user_fields(user, **kwargs):
 
 
 @sync_to_async
-def get_pending_outbox(limit: int):
+def get_pending_outbox(limit: int) -> list:
     """
     Берём пачку задач на отправку.
     Важно: предполагается один экземпляр bot-процесса.

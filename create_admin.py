@@ -12,7 +12,7 @@ sys.path.insert(0, '/app')
 django.setup()
 
 from django.contrib.auth.models import User
-from apps.users.models import User as TgUser
+# from apps.users.models import User as TgUser
 from apps.competitions.models import Competition
 
 # Создаём суперпользователя для админ панели

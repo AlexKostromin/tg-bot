@@ -8,6 +8,7 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+# типы
 
 @sync_to_async
 def send_contact_email(subject, message, from_email, recipient_list):

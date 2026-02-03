@@ -5,12 +5,24 @@ from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 from .constants import AVAILABLE_ROLES
 
 
+class Keyboard:
+    def __init__(self):
+        pass
+
+    def get_main_menu_keyboard(self):
+        pass
+
+    def get_competitions_keyboard(self):
+        pass
+
+
 def get_main_menu_keyboard() -> InlineKeyboardMarkup:
     """Главное меню бота."""
     keyboard = [
         [InlineKeyboardButton("💬 Связаться с командой USN", callback_data='contact_usn')],
-        [InlineKeyboardButton("⚽ Зарегистрироваться на соревнования", callback_data='register_competition')]
-    ]
+        [InlineKeyboardButton("⚽ Зарегистрироваться на соревнования",
+                              callback_data='register_competition')]
+        ]
     return InlineKeyboardMarkup(keyboard)
 
 
@@ -37,7 +49,7 @@ def get_confirmation_keyboard() -> InlineKeyboardMarkup:
     keyboard = [
         [InlineKeyboardButton("✅ Да", callback_data='confirm_yes')],
         [InlineKeyboardButton("❌ Нет", callback_data='confirm_no')]
-    ]
+        ]
     return InlineKeyboardMarkup(keyboard)
 
 
@@ -50,9 +62,10 @@ def get_edit_fields_keyboard() -> InlineKeyboardMarkup:
         [InlineKeyboardButton("Город", callback_data='edit_city')],
         [InlineKeyboardButton("Клуб/школа", callback_data='edit_school')],
         [InlineKeyboardButton("Имя и фамилия для сертификата", callback_data='edit_certificate')],
-        [InlineKeyboardButton("Как вас представить на соревнованиях", callback_data='edit_important')],
+        [InlineKeyboardButton("Как вас представить на соревнованиях",
+                              callback_data='edit_important')],
         [InlineKeyboardButton("❌ Отмена", callback_data='cancel')]
-    ]
+        ]
     return InlineKeyboardMarkup(keyboard)
 
 
@@ -61,7 +74,7 @@ def get_more_edits_keyboard() -> InlineKeyboardMarkup:
     keyboard = [
         [InlineKeyboardButton("✅ Да", callback_data='more_edits_yes')],
         [InlineKeyboardButton("❌ Нет", callback_data='more_edits_no')]
-    ]
+        ]
     return InlineKeyboardMarkup(keyboard)
 
 
@@ -70,5 +83,5 @@ def get_certificate_choice_keyboard() -> InlineKeyboardMarkup:
     keyboard = [
         [InlineKeyboardButton("✅ Да", callback_data='cert_yes')],
         [InlineKeyboardButton("❌ Нет", callback_data='cert_no')]
-    ]
+        ]
     return InlineKeyboardMarkup(keyboard)

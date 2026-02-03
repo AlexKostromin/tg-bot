@@ -2,6 +2,8 @@
 WSGI config for project.
 """
 
+# как будто лишнее
+
 import os
 
 from django.core.wsgi import get_wsgi_application
