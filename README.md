@@ -50,3 +50,4 @@ python manage.py runserver 0.0.0.0:4000
 
 Бот можно запустить отдельным процессом (пример команды — в `docker-compose.yml`, сервис `bot`).
 # tg-bot
+# tg-bot
