@@ -1,2 +1,1 @@
-1. Добавить requearements или poetry
-2. 
+1. ~~Добавить requirements~~ (done: backend/requirements.txt)

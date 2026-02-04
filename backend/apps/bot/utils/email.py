@@ -8,9 +8,8 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-# типы
 
 @sync_to_async
-def send_contact_email(subject, message, from_email, recipient_list):
+def send_contact_email(subject: str, message: str, from_email: str, recipient_list: list):
     """Send contact email using Django's send_mail"""
     return send_mail(subject, message, from_email, recipient_list, fail_silently=False)

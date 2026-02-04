@@ -2,18 +2,7 @@
 Функции создания клавиатур для бота.
 """
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
-from .constants import AVAILABLE_ROLES
-
-
-class Keyboard:
-    def __init__(self):
-        pass
-
-    def get_main_menu_keyboard(self):
-        pass
-
-    def get_competitions_keyboard(self):
-        pass
+from .constants import AVAILABLE_ROLES, ROLE_LABELS
 
 
 def get_main_menu_keyboard() -> InlineKeyboardMarkup:
@@ -35,11 +24,12 @@ def get_competitions_keyboard(competitions) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(keyboard)
 
 
-def get_roles_keyboard() -> InlineKeyboardMarkup:
-    """Клавиатура выбора роли."""
+def get_roles_keyboard(open_roles=None) -> InlineKeyboardMarkup:
+    """Клавиатура выбора роли. Если передан open_roles, показывает только доступные роли."""
     keyboard = []
     for role_key, role_name in AVAILABLE_ROLES:
-        keyboard.append([InlineKeyboardButton(role_name, callback_data=f'role_{role_key}')])
+        if open_roles is None or role_key in open_roles:
+            keyboard.append([InlineKeyboardButton(role_name, callback_data=f'role_{role_key}')])
     keyboard.append([InlineKeyboardButton("❌ Отмена", callback_data='cancel')])
     return InlineKeyboardMarkup(keyboard)
 

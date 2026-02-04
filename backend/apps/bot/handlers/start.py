@@ -9,19 +9,11 @@ from ..keyboards import get_main_menu_keyboard
 from ..messages import get_welcome_message
 from ..utils.db import get_or_create_user
 
-# уточнить будет ли эта функция работать асинхронно, если в ней get_or_create_user уже с
-# декоратором для синхронной работы, стоил ли сделать саму функцию start синхронной
-# класс который отвечает за типовые операции
-
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Start command - show main menu"""
     user = update.effective_user
     chat_id = str(update.effective_chat.id)
-
-    create_user = DB() # подумать над созданием класса, который отвечает за взаимодейстивие с БД
-    # Save/update basic user info
-
 
     await get_or_create_user(
         chat_id=chat_id,
@@ -51,7 +43,6 @@ async def button_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
     await query.answer()
     
     if query.data == 'contact_usn':
-        # точно ли этот импорт нельзя вынести наверх ко всеем остальным
         from .contact import contact_message_handler
 
         return await contact_message_handler(update, context)

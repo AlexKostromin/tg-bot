@@ -65,6 +65,8 @@ from ..utils.db import (
     add_user_to_competition,
     update_or_create_new_user,
     create_voter_time_slot,
+    create_registration_request,
+    get_open_roles_for_competition,
 )
 from .start import start
 from .profile import show_edit_options
@@ -118,20 +120,30 @@ async def select_competition(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
 
 async def show_roles(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Show available roles for competition"""
+    """Show available roles for competition (filtered by entry_open flags)"""
     query = update.callback_query if update.callback_query else None
-    
+
     comp_id = context.user_data.get('competition_id')
     comp = await get_competition_by_id(comp_id)
-    
-    reply_markup = get_roles_keyboard()
+
+    open_roles = await get_open_roles_for_competition(comp)
+
+    if not open_roles:
+        text = get_no_competitions_message()
+        if query:
+            await query.edit_message_text(text=text)
+        else:
+            await update.message.reply_text(text)
+        return await start(update, context)
+
+    reply_markup = get_roles_keyboard(open_roles=open_roles)
     text = get_role_selection_message()
-    
+
     if query:
         await query.edit_message_text(text=text, reply_markup=reply_markup)
     else:
         await update.message.reply_text(text, reply_markup=reply_markup)
-    
+
     return ROLE_SELECT
 
 
@@ -180,8 +192,8 @@ async def confirm_choice(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
         comp = await get_competition_by_id(comp_id)
         await add_user_to_competition(user, comp, role)
+        await create_registration_request(user, comp, role)
 
-        # Для судей запускаем дополнительный сценарий выбора слота
         if role == 'voter':
             return await start_voter_timeslot_flow(update, context, user, comp_id)
 
@@ -351,8 +363,8 @@ async def finalize_new_user(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     comp = await get_competition_by_id(comp_id)
     
     await add_user_to_competition(user, comp, role)
+    await create_registration_request(user, comp, role)
 
-    # Для судей сразу запускаем сценарий слотов
     if role == 'voter':
         return await start_voter_timeslot_flow(update, context, user, comp_id)
 

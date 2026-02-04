@@ -1,28 +1,30 @@
 """
 Обёртки для работы с Django ORM через sync_to_async.
 """
+from functools import wraps
+
 from asgiref.sync import sync_to_async
-from apps.users.models import User, ProfileChangeLog, NotificationOutbox
-from apps.competitions.models import Competition, VoterTimeSlot
+from django.db import close_old_connections
 from django.utils import timezone
 
-# Django по умолчанию работает на guvicon - он синхронный, будут ли эти запросы выполняться асинхронно на guvicorn ? Или надо испльзовать daphny асинхронный движок
-#  Добавить аннотацию типов
+from apps.users.models import User, ProfileChangeLog, NotificationOutbox, RegistrationRequest
+from apps.competitions.models import Competition, VoterTimeSlot
 
-class Bot:
-    # выбрать из двух вариантов
 
-    CHAT_ID = dddklfd
-    NAME = djlk
+def with_db_connection(func):
+    """Закрывает устаревшие DB-соединения перед вызовом ORM."""
+    @wraps(func)
+    def wrapper(*args, **kwargs):
+        close_old_connections()
+        try:
+            return func(*args, **kwargs)
+        finally:
+            close_old_connections()
+    return wrapper
 
-    def __init__(self):
-        pass
-
-    def create(self):
-        CHAT_ID = self.CHAT_ID
-        pass
 
 @sync_to_async
+@with_db_connection
 def get_or_create_user(chat_id, telegram_id, username, first_name, last_name):
     """Get or create user from chat_id"""
     db_user, created = User.objects.get_or_create(
@@ -44,24 +46,28 @@ def get_or_create_user(chat_id, telegram_id, username, first_name, last_name):
 
 
 @sync_to_async
+@with_db_connection
 def get_competitions():
     """Get all competitions"""
     return list(Competition.objects.all())
 
 
 @sync_to_async
+@with_db_connection
 def get_competition_by_id(comp_id):
     """Get competition by ID"""
     return Competition.objects.get(id=comp_id)
 
 
 @sync_to_async
+@with_db_connection
 def get_user_by_telegram_id(telegram_id):
     """Get user by telegram_id or raise DoesNotExist"""
     return User.objects.get(telegram_id=telegram_id)
 
 
 @sync_to_async
+@with_db_connection
 def add_user_to_competition(user, comp, role):
     """Add user to competition's role list"""
     if role == 'player':
@@ -75,6 +81,7 @@ def add_user_to_competition(user, comp, role):
 
 
 @sync_to_async
+@with_db_connection
 def update_or_create_new_user(
     chat_id,
     telegram_id,
@@ -115,6 +122,7 @@ def update_or_create_new_user(
 
 
 @sync_to_async
+@with_db_connection
 def create_profile_log(user: User, field_name, old_value, new_value) -> ProfileChangeLog:
     """Create profile change log"""
     return ProfileChangeLog.objects.create(
@@ -126,6 +134,7 @@ def create_profile_log(user: User, field_name, old_value, new_value) -> ProfileC
 
 
 @sync_to_async
+@with_db_connection
 def update_user_fields(user, **kwargs):
     """Update user fields and save"""
     for key, value in kwargs.items():
@@ -135,6 +144,7 @@ def update_user_fields(user, **kwargs):
 
 
 @sync_to_async
+@with_db_connection
 def get_pending_outbox(limit: int) -> list:
     """
     Берём пачку задач на отправку.
@@ -148,6 +158,7 @@ def get_pending_outbox(limit: int) -> list:
 
 
 @sync_to_async
+@with_db_connection
 def mark_outbox_sent(outbox_id: int):
     NotificationOutbox.objects.filter(id=outbox_id).update(
         status=NotificationOutbox.STATUS_SENT,
@@ -157,8 +168,8 @@ def mark_outbox_sent(outbox_id: int):
 
 
 @sync_to_async
+@with_db_connection
 def mark_outbox_failed(outbox_id: int, error: str, attempts: int, max_attempts: int):
-    # если попыток слишком много — переводим в failed, иначе оставляем pending для ретрая
     new_status = NotificationOutbox.STATUS_FAILED if attempts >= max_attempts else NotificationOutbox.STATUS_PENDING
     NotificationOutbox.objects.filter(id=outbox_id).update(
         status=new_status,
@@ -168,6 +179,7 @@ def mark_outbox_failed(outbox_id: int, error: str, attempts: int, max_attempts: 
 
 
 @sync_to_async
+@with_db_connection
 def create_voter_time_slot(competition_id: int, voter_id: int, slot_date, start_time, end_time):
     """
     Создаёт временной слот для судьи в соревновании.
@@ -181,3 +193,53 @@ def create_voter_time_slot(competition_id: int, voter_id: int, slot_date, start_
         start_time=start_time,
         end_time=end_time,
     )
+
+
+@sync_to_async
+@with_db_connection
+def create_registration_request(user, competition, role):
+    """
+    Создаёт заявку на регистрацию (RegistrationRequest).
+    Если заявка уже существует — возвращает существующую.
+    """
+    request, created = RegistrationRequest.objects.get_or_create(
+        user=user,
+        competition=competition,
+        role=role,
+        defaults={
+            'user_first_name': user.first_name or '',
+            'user_last_name': user.last_name or '',
+            'user_email': user.email or '',
+            'user_phone': user.phone or '',
+        }
+    )
+    return request, created
+
+
+@sync_to_async
+@with_db_connection
+def get_open_competitions_for_role(role):
+    """
+    Возвращает соревнования, для которых открыта регистрация по данной роли.
+    """
+    filter_field = f'entry_open_{role}'
+    return list(Competition.objects.filter(**{filter_field: True}))
+
+
+@sync_to_async
+@with_db_connection
+def get_open_roles_for_competition(competition):
+    """
+    Возвращает список ролей, для которых открыта регистрация в данном соревновании.
+    """
+    competition = Competition.objects.get(id=competition.id)
+    roles = []
+    if competition.entry_open_player:
+        roles.append('player')
+    if competition.entry_open_voter:
+        roles.append('voter')
+    if competition.entry_open_viewer:
+        roles.append('viewer')
+    if competition.entry_open_adviser:
+        roles.append('adviser')
+    return roles
