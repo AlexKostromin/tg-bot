@@ -1,0 +1,96 @@
+# Poetry
+poetry.lock
+dist/
+build/
+*.egg-info/
+
+# Virtual environments
+venv/
+.venv/
+env/
+.env/
+ENV/
+env.bak/
+venv.bak/
+
+# Django
+*.py[cod]
+*$py.class
+__pycache__/
+*.so
+.Python
+db.sqlite3
+db.sqlite3-journal
+/media
+/staticfiles
+
+# Environment variables
+.env
+.env.local
+.env.*.local
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+*.sublime-project
+*.sublime-workspace
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+.hypothesis/
+
+# Type checking
+.mypy_cache/
+.dmypy.json
+dmypy.json
+
+# Linting
+.flake8
+.pylintrc
+
+# Node (если есть frontend)
+node_modules/
+npm-debug.log
+yarn-error.log
+
+# Misc
+*.log
+*.pot
+.cache/
+.scrapy
+cover/
+docs/_build/
+target/
+.ipynb_checkpoints
+.pytype/
+.ruby-version
+.python-version
+
+# Logs
+logs/
+*.log
+*.pot
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Windows
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# Docker (если используется локально)
+.dockerignore
+
+# IDE settings
+.vscode/settings.json
+.idea/workspace.xml
