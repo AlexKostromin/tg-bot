@@ -1,3 +1,5 @@
+from typing import Optional
+
 from django.db import models
 from django.utils import timezone
 
@@ -43,7 +45,7 @@ class User(models.Model):
         verbose_name = 'Пользователь'
         verbose_name_plural = 'Пользователи'
 
-    def __str__(self):
+    def __str__(self) -> str:
         return f"{self.first_name} ({self.username})" if self.username else str(self.chat_id)
 
 
@@ -61,7 +63,7 @@ class ProfileChangeLog(models.Model):
         verbose_name = 'Лог изменений'
         verbose_name_plural = 'Логи изменений'
 
-    def __str__(self):
+    def __str__(self) -> str:
         return f"{self.user.username} - {self.field_name} - {self.changed_at}"
 
 
@@ -113,7 +115,7 @@ class NotificationOutbox(models.Model):
         verbose_name = 'Outbox уведомлений'
         verbose_name_plural = 'Outbox уведомлений'
 
-    def __str__(self):
+    def __str__(self) -> str:
         return f"Outbox#{self.id} {self.status} chat_id={self.chat_id}"
 
 
@@ -187,5 +189,5 @@ class RegistrationRequest(models.Model):
         verbose_name = 'Заявка на регистрацию'
         verbose_name_plural = 'Заявки на регистрацию'
 
-    def __str__(self):
+    def __str__(self) -> str:
         return f"{self.user.first_name} - {self.get_role_display()} - {self.competition.name} ({self.get_status_display()})"

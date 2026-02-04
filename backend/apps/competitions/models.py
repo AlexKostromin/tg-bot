@@ -1,5 +1,7 @@
 from django.db import models
+
 from apps.users.models import User
+
 
 class Competition(models.Model):
     name = models.CharField(max_length=255, verbose_name='Название')
@@ -21,7 +23,7 @@ class Competition(models.Model):
         verbose_name = 'Соревнование'
         verbose_name_plural = 'Соревнования'
 
-    def __str__(self):
+    def __str__(self) -> str:
         return self.name
 
 
@@ -62,5 +64,5 @@ class VoterTimeSlot(models.Model):
         verbose_name = 'Временной слот судьи'
         verbose_name_plural = 'Временные слоты судей'
 
-    def __str__(self):
+    def __str__(self) -> str:
         return f"{self.voter.first_name} - {self.competition.name} ({self.slot_date} {self.start_time}-{self.end_time})"
