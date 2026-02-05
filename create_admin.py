@@ -17,8 +17,8 @@ from apps.competitions.models import Competition
 
 # Создаём суперпользователя для админ панели
 if not User.objects.filter(username='admin').exists():
-    User.objects.create_superuser('admin', 'admin@example.com', 'admin123')
-    print("✓ Суперпользователь 'admin' создан (пароль: admin123)")
+    User.objects.create_superuser('admin', 'admin@example.com', 'admin')
+    print("✓ Суперпользователь 'admin' создан (пароль: admin)")
 else:
     print("✓ Суперпользователь уже существует")
 
@@ -34,5 +34,5 @@ else:
 
 print("\nАдминистратор готов к использованию!")
 print("Логин: admin")
-print("Пароль: admin123")
+print("Пароль: admin")
 print("URL: http://localhost:4000/admin/")

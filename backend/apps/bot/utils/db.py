@@ -91,8 +91,17 @@ class DatabaseService:
         birth_date: Optional[date] = None,
         channel_name: Optional[str] = None,
     ) -> User:
-        """Update existing user with full profile data."""
-        user = User.objects.get(chat_id=chat_id)
+        """Update or create user with full profile data."""
+        user, created = User.objects.get_or_create(
+            chat_id=chat_id,
+            defaults={
+                'telegram_id': telegram_id,
+                'username': '',
+                'first_name': first_name,
+                'last_name': last_name,
+            }
+        )
+        # Always update with full profile data
         user.telegram_id = telegram_id
         user.first_name = first_name
         user.last_name = last_name
@@ -346,7 +355,16 @@ def update_or_create_new_user(
     channel_name: Optional[str] = None,
 ) -> User:
     """Deprecated: Use DatabaseService.update_or_create_new_user instead."""
-    user = User.objects.get(chat_id=chat_id)
+    user, created = User.objects.get_or_create(
+        chat_id=chat_id,
+        defaults={
+            'telegram_id': telegram_id,
+            'username': '',
+            'first_name': first_name,
+            'last_name': last_name,
+        }
+    )
+    # Always update with full profile data
     user.telegram_id = telegram_id
     user.first_name = first_name
     user.last_name = last_name

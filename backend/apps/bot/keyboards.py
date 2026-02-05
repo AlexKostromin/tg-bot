@@ -3,7 +3,7 @@
 """
 from typing import TYPE_CHECKING, List, Optional, Tuple
 
-from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, KeyboardButton, ReplyKeyboardMarkup, ReplyKeyboardRemove
 
 from .constants import AVAILABLE_ROLES
 
@@ -149,3 +149,17 @@ def get_more_edits_keyboard() -> InlineKeyboardMarkup:
 def get_certificate_choice_keyboard() -> InlineKeyboardMarkup:
     """Клавиатура выбора необходимости сертификата."""
     return KeyboardBuilder.certificate_choice()
+
+
+def get_phone_keyboard() -> ReplyKeyboardMarkup:
+    """Клавиатура для запроса телефона с кнопкой поделиться контактом."""
+    keyboard = [
+        [KeyboardButton("📱 Поделиться контактом", request_contact=True)],
+        [KeyboardButton("✍️ Ввести вручную")]
+    ]
+    return ReplyKeyboardMarkup(keyboard, resize_keyboard=True, one_time_keyboard=True)
+
+
+def get_remove_keyboard() -> ReplyKeyboardRemove:
+    """Убрать клавиатуру."""
+    return ReplyKeyboardRemove()

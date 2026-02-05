@@ -6,7 +6,7 @@ from telegram.ext import ContextTypes
 
 from ..states import EDIT_FIELD, EDIT_CHOICE, MORE_EDITS
 from ..keyboards import get_edit_fields_keyboard, get_more_edits_keyboard
-from ..messages import get_edit_prompt_message, get_field_prompts, get_field_updated_message
+from ..messages import BotMessages
 from ..utils.db import get_user_by_telegram_id, update_user_fields, create_profile_log
 from .start import start
 
@@ -14,10 +14,10 @@ from .start import start
 async def show_edit_options(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Show which fields can be edited"""
     query = update.callback_query
-    
+
     reply_markup = get_edit_fields_keyboard()
-    text = get_edit_prompt_message()
-    
+    text = BotMessages.edit_prompt()
+
     await query.edit_message_text(text=text, reply_markup=reply_markup)
     return EDIT_FIELD
 
@@ -32,8 +32,8 @@ async def edit_field(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     
     field = query.data.split('_')[1]
     context.user_data['edit_field'] = field
-    
-    field_prompts = get_field_prompts()
+
+    field_prompts = BotMessages.field_prompts()
     await query.edit_message_text(text=field_prompts.get(field))
     return EDIT_CHOICE
 
@@ -77,7 +77,7 @@ async def edit_input(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     
     reply_markup = get_more_edits_keyboard()
     await update.message.reply_text(
-        get_field_updated_message(),
+        BotMessages.field_updated(),
         reply_markup=reply_markup
     )
     

@@ -37,6 +37,8 @@ from .states import (
     NEW_USER_CERT_NAME,
     NEW_USER_COMPANY,
     NEW_USER_POSITION,
+    NEW_USER_CERT_ROLE_CONFIRM,
+    NEW_USER_CERT_NAME_LATE,
     NEW_USER_IMPORTANT,
     VOTER_SLOT_DATE,
     VOTER_SLOT_START,
@@ -67,9 +69,11 @@ from .handlers.registration import (
     new_user_school,
     new_user_cert_choice,
     new_user_cert_name,
+    new_user_cert_name_late,
     new_user_channel_name,
     new_user_company,
     new_user_position,
+    new_user_cert_role_confirm,
     new_user_important,
     voter_slot_date,
     voter_slot_start,
@@ -86,11 +90,25 @@ logger = logging.getLogger(__name__)
 
 async def cancel(update, context):
     """Fallback handler для отмены операции."""
-    from .messages import get_cancel_message
+    from .messages import BotMessages
     from .handlers.start import start
-    
-    await update.message.reply_text(get_cancel_message())
+
+    await update.message.reply_text(BotMessages.cancel())
     return await start(update, context)
+
+
+async def error_handler(update, context):
+    """Global error handler for all unhandled exceptions."""
+    logger.error(f"Exception while handling an update: {context.error}", exc_info=context.error)
+
+    if update and update.effective_message:
+        try:
+            await update.effective_message.reply_text(
+                "❌ Произошла ошибка при обработке вашего запроса.\n"
+                "Пожалуйста, попробуйте позже или свяжитесь с поддержкой."
+            )
+        except Exception as e:
+            logger.error(f"Failed to send error message: {e}")
 
 
 def setup_bot_handlers(app: Application) -> None:
@@ -130,6 +148,7 @@ def setup_bot_handlers(app: Application) -> None:
                 MessageHandler(filters.TEXT & ~filters.COMMAND, new_user_surname),
             ],
             NEW_USER_PHONE: [
+                MessageHandler(filters.CONTACT, new_user_phone),
                 MessageHandler(filters.TEXT & ~filters.COMMAND, new_user_phone),
             ],
             NEW_USER_EMAIL: [
@@ -156,11 +175,17 @@ def setup_bot_handlers(app: Application) -> None:
             NEW_USER_CERT_NAME: [
                 MessageHandler(filters.TEXT & ~filters.COMMAND, new_user_cert_name),
             ],
+            NEW_USER_CERT_NAME_LATE: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, new_user_cert_name_late),
+            ],
             NEW_USER_COMPANY: [
                 MessageHandler(filters.TEXT & ~filters.COMMAND, new_user_company),
             ],
             NEW_USER_POSITION: [
                 MessageHandler(filters.TEXT & ~filters.COMMAND, new_user_position),
+            ],
+            NEW_USER_CERT_ROLE_CONFIRM: [
+                CallbackQueryHandler(new_user_cert_role_confirm, pattern=PATTERN_CERT_CHOICE),
             ],
             NEW_USER_IMPORTANT: [
                 MessageHandler(filters.TEXT & ~filters.COMMAND, new_user_important),
@@ -179,6 +204,9 @@ def setup_bot_handlers(app: Application) -> None:
     )
     
     app.add_handler(conv_handler)
+
+    # Register global error handler
+    app.add_error_handler(error_handler)
 
     # Фоновая обработка outbox-рассылок (Telegram)
     try:

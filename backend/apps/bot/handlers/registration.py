@@ -23,6 +23,7 @@ from ..states import (
     NEW_USER_CERT_NAME,
     NEW_USER_COMPANY,
     NEW_USER_POSITION,
+    NEW_USER_CERT_ROLE_CONFIRM,
     NEW_USER_IMPORTANT,
     VOTER_SLOT_DATE,
     VOTER_SLOT_START,
@@ -30,34 +31,9 @@ from ..states import (
 )
 from ..keyboards import (
     get_competitions_keyboard, get_roles_keyboard, get_confirmation_keyboard,
-    get_certificate_choice_keyboard,
+    get_certificate_choice_keyboard, get_phone_keyboard, get_remove_keyboard,
 )
-from ..messages import (
-    get_no_competitions_message,
-    get_competition_selection_message,
-    get_role_selection_message,
-    get_user_confirmation_message,
-    get_registration_success_message,
-    get_new_user_registration_success,
-    get_new_user_name_prompt,
-    get_new_user_surname_prompt,
-    get_new_user_phone_prompt,
-    get_new_user_email_prompt,
-    get_new_user_birth_date_prompt,
-    get_new_user_country_prompt,
-    get_new_user_city_prompt,
-    get_new_user_school_prompt,
-    get_new_user_channel_name_prompt,
-    get_certificate_question,
-    get_certificate_name_prompt,
-    get_company_prompt,
-    get_position_prompt,
-    get_important_info_prompt,
-    get_voter_slot_date_prompt,
-    get_voter_slot_start_prompt,
-    get_voter_slot_end_prompt,
-    get_voter_slot_saved_message,
-)
+from ..messages import BotMessages
 from ..utils.db import (
     get_competitions,
     get_competition_by_id,
@@ -79,7 +55,7 @@ async def show_competitions(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     competitions = await get_competitions()
     
     if not competitions:
-        text = get_no_competitions_message()
+        text = BotMessages.no_competitions()
         if query:
             await query.edit_message_text(text=text)
         else:
@@ -92,7 +68,7 @@ async def show_competitions(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         return await show_roles(update, context)
     
     reply_markup = get_competitions_keyboard(competitions)
-    text = get_competition_selection_message()
+    text = BotMessages.competition_selection()
     
     if query:
         await query.edit_message_text(text=text, reply_markup=reply_markup)
@@ -129,7 +105,7 @@ async def show_roles(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     open_roles = await get_open_roles_for_competition(comp)
 
     if not open_roles:
-        text = get_no_competitions_message()
+        text = BotMessages.no_competitions()
         if query:
             await query.edit_message_text(text=text)
         else:
@@ -137,7 +113,7 @@ async def show_roles(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         return await start(update, context)
 
     reply_markup = get_roles_keyboard(open_roles=open_roles)
-    text = get_role_selection_message()
+    text = BotMessages.role_selection()
 
     if query:
         await query.edit_message_text(text=text, reply_markup=reply_markup)
@@ -171,7 +147,7 @@ async def confirm_existing_user(update: Update, context: ContextTypes.DEFAULT_TY
     """Show existing user data for confirmation"""
     query = update.callback_query
     
-    text = get_user_confirmation_message(user, role)
+    text = BotMessages.user_confirmation(user, role)
     reply_markup = get_confirmation_keyboard()
     
     await query.edit_message_text(text=text, reply_markup=reply_markup)
@@ -197,7 +173,7 @@ async def confirm_choice(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         if role == 'voter':
             return await start_voter_timeslot_flow(update, context, user, comp_id)
 
-        text = get_registration_success_message(role, comp_name)
+        text = BotMessages.registration_success(role, comp_name)
         await query.edit_message_text(text=text)
 
         return await start(update, context)
@@ -210,124 +186,177 @@ async def confirm_choice(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 async def register_new_user_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Start new user registration"""
     query = update.callback_query
-    await query.edit_message_text(text=get_new_user_name_prompt())
+    await query.edit_message_text(text=BotMessages.new_user_name_prompt())
     return NEW_USER_NAME
 
 
 async def new_user_name(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     context.user_data['first_name'] = update.message.text
-    await update.message.reply_text(get_new_user_surname_prompt())
+    await update.message.reply_text(BotMessages.new_user_surname_prompt())
     return NEW_USER_SURNAME
 
 
 async def new_user_surname(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     context.user_data['last_name'] = update.message.text
-    await update.message.reply_text(get_new_user_phone_prompt())
+    reply_markup = get_phone_keyboard()
+    await update.message.reply_text(
+        BotMessages.new_user_phone_prompt(),
+        reply_markup=reply_markup
+    )
     return NEW_USER_PHONE
 
 
 async def new_user_phone(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    context.user_data['phone'] = update.message.text
-    await update.message.reply_text(get_new_user_email_prompt())
+    import re
+    # If user shared contact
+    if update.message.contact:
+        context.user_data['phone'] = update.message.contact.phone_number
+    # If user clicked "Enter manually"
+    elif update.message.text == "✍️ Ввести вручную":
+        await update.message.reply_text(
+            "Введите ваш номер телефона:",
+            reply_markup=get_remove_keyboard()
+        )
+        return NEW_USER_PHONE
+    # User entered phone as text
+    else:
+        phone = update.message.text.strip()
+        # Валидация: минимум 5 цифр
+        if not re.search(r'\d', phone) or len(re.sub(r'\D', '', phone)) < 5:
+            await update.message.reply_text(
+                "❌ Пожалуйста, введите корректный номер телефона.\n"
+                "Телефон должен содержать минимум 5 цифр."
+            )
+            return NEW_USER_PHONE
+        context.user_data['phone'] = phone
+
+    # Remove keyboard and move to email
+    await update.message.reply_text(
+        BotMessages.new_user_email_prompt(),
+        reply_markup=get_remove_keyboard()
+    )
     return NEW_USER_EMAIL
 
 
 async def new_user_email(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    context.user_data['email'] = update.message.text
-    await update.message.reply_text(get_new_user_birth_date_prompt())
-    return NEW_USER_BIRTH_DATE
+    import re
+    email = update.message.text.strip()
 
+    # Валидация email
+    email_regex = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
+    if not re.match(email_regex, email):
+        await update.message.reply_text(
+            "❌ Пожалуйста, введите корректный email адрес.\n"
+            "Например: example@domain.com"
+        )
+        return NEW_USER_EMAIL
 
-async def new_user_birth_date(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    text = update.message.text.strip()
-    if text.lower() == 'нет' or text == '-':
-        context.user_data['birth_date'] = None
-    else:
-        try:
-            parsed = datetime.strptime(text, "%Y-%m-%d").date()
-            context.user_data['birth_date'] = parsed
-        except ValueError:
-            await update.message.reply_text(
-                "Не удалось распознать дату. Пожалуйста, используйте формат ГГГГ-ММ-ДД, например 2010-05-23."
-            )
-            return NEW_USER_BIRTH_DATE
-
-    await update.message.reply_text(get_new_user_country_prompt())
+    context.user_data['email'] = email
+    await update.message.reply_text(BotMessages.new_user_country_prompt())
     return NEW_USER_COUNTRY
 
 
 async def new_user_country(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     context.user_data['country'] = update.message.text
-    await update.message.reply_text(get_new_user_city_prompt())
+    await update.message.reply_text(BotMessages.new_user_city_prompt())
     return NEW_USER_CITY
 
 
 async def new_user_city(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     context.user_data['city'] = update.message.text
-    await update.message.reply_text(get_new_user_school_prompt())
+    await update.message.reply_text(BotMessages.new_user_school_prompt())
     return NEW_USER_SCHOOL
 
 
 async def new_user_school(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     context.user_data['school'] = update.message.text
-    
-    role = context.user_data.get('role')
-    
-    if role in ['player', 'voter']:
-        reply_markup = get_certificate_choice_keyboard()
-        await update.message.reply_text(
-            get_certificate_question(),
-            reply_markup=reply_markup
-        )
-        return NEW_USER_CERT_ROLE
-    else:
-        await update.message.reply_text(get_new_user_channel_name_prompt())
-        return NEW_USER_CHANNEL_NAME
+
+    # ALWAYS ask the first Player/Voter question (regardless of role!)
+    reply_markup = get_certificate_choice_keyboard()
+    await update.message.reply_text(
+        BotMessages.certificate_question(),
+        reply_markup=reply_markup
+    )
+    return NEW_USER_CERT_ROLE
 
 
 async def new_user_cert_choice(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Handle FIRST Player/Voter question"""
     query = update.callback_query
     await query.answer()
-    
+
+    # Save the first answer
+    context.user_data['first_cert_answer'] = query.data  # 'cert_yes' or 'cert_no'
+
     if query.data == 'cert_yes':
-        await query.edit_message_text(get_certificate_name_prompt())
+        # If YES - ask for certificate name immediately
+        await query.edit_message_text(BotMessages.certificate_name_prompt())
         return NEW_USER_CERT_NAME
     else:
-        await query.edit_message_text(get_company_prompt())
+        # If NO - ask for company
+        await query.edit_message_text(BotMessages.company_prompt())
         return NEW_USER_COMPANY
 
 
 async def new_user_cert_name(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     context.user_data['certificate_name'] = update.message.text
-    await update.message.reply_text(get_new_user_channel_name_prompt())
-    return NEW_USER_CHANNEL_NAME
-
-
-async def new_user_channel_name(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    raw = update.message.text.strip()
-    if raw.lower() in ('нет', 'no', '-'):
-        context.user_data['channel_name'] = None
-    else:
-        context.user_data['channel_name'] = raw
-    await update.message.reply_text(get_company_prompt())
+    await update.message.reply_text(BotMessages.company_prompt())
     return NEW_USER_COMPANY
 
 
 async def new_user_company(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     context.user_data['company'] = update.message.text
-    await update.message.reply_text(get_position_prompt())
+    await update.message.reply_text(BotMessages.position_prompt())
     return NEW_USER_POSITION
+
+async def new_user_cert_name_late(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Request certificate name for users who changed their mind (second NO → second YES)"""
+    context.user_data['certificate_name'] = update.message.text
+    await update.message.reply_text(BotMessages.important_info_prompt())
+    return NEW_USER_IMPORTANT
+
+
+async def new_user_cert_role_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Handle SECOND Player/Voter question"""
+    query = update.callback_query
+    await query.answer()
+
+    first_answer = context.user_data.get('first_cert_answer')  # 'cert_yes' or 'cert_no'
+    second_answer = query.data  # 'cert_yes' or 'cert_no'
+
+    # Scenario 1: First YES, Second YES
+    if first_answer == 'cert_yes' and second_answer == 'cert_yes':
+        # Already has certificate_name, ask for "how to present"
+        await query.edit_message_text(BotMessages.important_info_prompt())
+        return NEW_USER_IMPORTANT
+
+    # Scenario 2: First YES, Second NO
+    elif first_answer == 'cert_yes' and second_answer == 'cert_no':
+        # Already has certificate_name, but DON'T ask for important_info
+        return await finalize_new_user(update, context)
+
+    # Scenario 3: First NO, Second YES
+    elif first_answer == 'cert_no' and second_answer == 'cert_yes':
+        # DON'T have certificate_name, ask for it
+        await query.edit_message_text(BotMessages.certificate_name_prompt())
+        return NEW_USER_CERT_NAME_LATE
+
+    # Scenario 4: First NO, Second NO
+    else:
+        # Create user without certificate and without important_info
+        return await finalize_new_user(update, context)
 
 
 async def new_user_position(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     context.user_data['position'] = update.message.text
-    
-    role = context.user_data.get('role')
-    if role in ['player', 'voter']:
-        await update.message.reply_text(get_important_info_prompt())
-        return NEW_USER_IMPORTANT
-    else:
-        return await finalize_new_user(update, context)
+
+    # ALWAYS ask the SECOND Player/Voter question (after company/position)
+    reply_markup = get_certificate_choice_keyboard()
+    await update.message.reply_text(
+        BotMessages.certificate_question(),
+        reply_markup=reply_markup
+    )
+    return NEW_USER_CERT_ROLE_CONFIRM
 
 
 async def new_user_important(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -335,10 +364,59 @@ async def new_user_important(update: Update, context: ContextTypes.DEFAULT_TYPE)
     return await finalize_new_user(update, context)
 
 
+async def new_user_birth_date(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Legacy handler - not used in new flow but kept for backward compatibility"""
+    text = update.message.text.strip()
+    if text.lower() == 'нет' or text == '-':
+        context.user_data['birth_date'] = None
+    else:
+        try:
+            parsed = datetime.strptime(text, "%Y-%m-%d").date()
+
+            # Валидация: дата не в будущем и после 1900 года
+            today = date.today()
+            if parsed > today:
+                await update.message.reply_text(
+                    "❌ Дата рождения не может быть в будущем.\n"
+                    "Пожалуйста, используйте формат ГГГГ-ММ-ДД, например 2010-05-23."
+                )
+                return NEW_USER_BIRTH_DATE
+
+            if parsed.year < 1900:
+                await update.message.reply_text(
+                    "❌ Пожалуйста, введите корректную дату рождения (после 1900 года).\n"
+                    "Формат: ГГГГ-ММ-ДД, например 2010-05-23."
+                )
+                return NEW_USER_BIRTH_DATE
+
+            context.user_data['birth_date'] = parsed
+        except ValueError:
+            await update.message.reply_text(
+                "❌ Не удалось распознать дату. Пожалуйста, используйте формат ГГГГ-ММ-ДД, например 2010-05-23."
+            )
+            return NEW_USER_BIRTH_DATE
+
+    await update.message.reply_text(BotMessages.new_user_country_prompt())
+    return NEW_USER_COUNTRY
+
+
+async def new_user_channel_name(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Legacy handler - not used in new flow but kept for backward compatibility"""
+    raw = update.message.text.strip()
+    if raw.lower() in ('нет', 'no', '-'):
+        context.user_data['channel_name'] = None
+    else:
+        context.user_data['channel_name'] = raw
+    await update.message.reply_text(BotMessages.company_prompt())
+    return NEW_USER_COMPANY
+
+
 async def finalize_new_user(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Create new user and show confirmation (NOT registering to competition yet)"""
     chat_id = context.user_data.get('chat_id')
     telegram_id = context.user_data.get('telegram_id')
-    
+
+    # Create user in DB (but do NOT register to competition yet)
     user = await update_or_create_new_user(
         chat_id=chat_id,
         telegram_id=telegram_id,
@@ -353,24 +431,23 @@ async def finalize_new_user(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         position=context.user_data.get('position'),
         certificate_name=context.user_data.get('certificate_name'),
         important_info=context.user_data.get('important_info'),
-        birth_date=context.user_data.get('birth_date'),
-        channel_name=context.user_data.get('channel_name'),
+        birth_date=None,  # Not requested in new flow
+        channel_name=None,  # Not requested in new flow
     )
-    
+
+    # Show user data for confirmation (same as existing users)
     role = context.user_data.get('role')
-    comp_id = context.user_data.get('competition_id')
-    comp_name = context.user_data.get('competition_name')
-    comp = await get_competition_by_id(comp_id)
-    
-    await add_user_to_competition(user, comp, role)
-    await create_registration_request(user, comp, role)
+    text = BotMessages.user_confirmation(user, role)
+    reply_markup = get_confirmation_keyboard()
 
-    if role == 'voter':
-        return await start_voter_timeslot_flow(update, context, user, comp_id)
+    # Send message based on whether it came from callback or message
+    if getattr(update, "callback_query", None):
+        await update.callback_query.edit_message_text(text=text, reply_markup=reply_markup)
+    else:
+        await update.message.reply_text(text, reply_markup=reply_markup)
 
-    text = get_new_user_registration_success(user, role, comp_name)
-    await update.message.reply_text(text)
-    return await start(update, context)
+    # Move to CONFIRM_DATA state (same as existing users!)
+    return CONFIRM_DATA
 
 
 async def start_voter_timeslot_flow(
@@ -387,9 +464,9 @@ async def start_voter_timeslot_flow(
 
     # В зависимости от того, пришли мы из callback или message, отвечаем в нужный канал
     if getattr(update, "callback_query", None):
-        await update.callback_query.edit_message_text(get_voter_slot_date_prompt())
+        await update.callback_query.edit_message_text(BotMessages.voter_slot_date_prompt())
     else:
-        await update.message.reply_text(get_voter_slot_date_prompt())
+        await update.message.reply_text(BotMessages.voter_slot_date_prompt())
     return VOTER_SLOT_DATE
 
 
@@ -405,7 +482,7 @@ async def voter_slot_date(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         return VOTER_SLOT_DATE
 
     context.user_data['voter_slot_date'] = parsed_date
-    await update.message.reply_text(get_voter_slot_start_prompt())
+    await update.message.reply_text(BotMessages.voter_slot_start_prompt())
     return VOTER_SLOT_START
 
 
@@ -421,7 +498,7 @@ async def voter_slot_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         return VOTER_SLOT_START
 
     context.user_data['voter_slot_start'] = parsed_time
-    await update.message.reply_text(get_voter_slot_end_prompt())
+    await update.message.reply_text(BotMessages.voter_slot_end_prompt())
     return VOTER_SLOT_END
 
 
@@ -457,6 +534,6 @@ async def voter_slot_end(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         end_time=end_time,
     )
 
-    await update.message.reply_text(get_voter_slot_saved_message())
+    await update.message.reply_text(BotMessages.voter_slot_saved())
     # Завершаем сценарий и возвращаем в главное меню
     return await start(update, context)
